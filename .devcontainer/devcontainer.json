@@ -1,4 +1,5 @@
 {
+    
     "name": "Rust and AWS CLI",
     "build": {
         "dockerfile": "Dockerfile"
