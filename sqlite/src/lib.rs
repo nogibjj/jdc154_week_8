@@ -1,79 +1,121 @@
-//this will be the CLI portion of the project where we accept
-//user defined arguments and call lib.rs logic to handle them
-use clap::{Parser, Subcommand};
-use rusqlite::{Connection, Result};
-use sqlite::{create_table, drop_table, load_data_from_csv, query_exec}; //import library logic
+use reqwest::blocking::Client;
+use rusqlite::{params, Connection, Result};
+use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 
-//Here we define a struct (or object) to hold our CLI arguments
-//for #[STUFF HERE] syntax, these are called attributes. Dont worry about them
-//for now, they define behavior for elements in rust.
+const LOG_FILE: &str = "query_log.md";
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-//Think of a struct as a class which makes objects in python
-//This is designed to generate an object out of the CLI inputs
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
+fn log_query(query: &str, log_file: &str) {
+    if let Ok(mut file) = OpenOptions::new().append(true).create(true).open(log_file) {
+        if let Err(err) = writeln!(file, "```sql\n{}\n```\n", query) {
+            eprintln!("Error writing to log file: {:?}", err);
+        }
+    } else {
+        eprintln!("Error opening log file for writing.");
+    }
 }
 
-//An enum is a type in rust that can have multiple exauhstive and mutually exclusive options
-//We also know that the command can be 1 of 4 (really 3) options
-//Create, Read and Update (query), Delete
+pub fn extract(url: &str, file_path: &str, directory: &str) {
+    if fs::metadata(directory).is_err() {
+        fs::create_dir_all(directory).expect("Failed to create directory");
+    }
 
-#[derive(Debug, Subcommand)]
-//By separating out the commands as enum types we can easily match what the user is
-//trying to do in main
-enum Commands {
-    ///Pass a table name to create a table
-    #[command(alias = "c", short_flag = 'c')]
-    Create { table_name: String },
-    ///Pass a query string to execute Read or Update operations
-    #[command(alias = "q", short_flag = 'q')]
-    Query { query: String },
-    ///Pass a table name to drop
-    #[command(alias = "d", short_flag = 'd')]
-    Delete { delete_query: String },
-    ///Pass a table name and a file path to load data from csv
-    /// sqlite -l table_name file_path
-    #[command(alias = "l", short_flag = 'l')]
-    Load {
-        table_name: String,
-        file_path: String,
-    },
+    let client = Client::new();
+    let mut response = client.get(url).send().expect("Failed to send request");
+    let mut file = fs::File::create(file_path).expect("Failed to create file");
+
+    std::io::copy(&mut response, &mut file).expect("Failed to copy content");
+
+    println!("Extraction successful!");
 }
 
-fn main() -> Result<()> {
-    //Here we parse the CLI arguments and store them in the args object
-    let args = Cli::parse();
-    //generate connection
-    let conn = Connection::open("my_database.db")?;
+pub fn transform_load(dataset: &str) -> Result<String> {
+    let conn = Connection::open("nfl_Receivers.db")?;
 
-    //Here we can match the behavior on the subcommand and call our lib logic
-    match args.command {
-        Commands::Create { table_name } => {
-            println!("Creating Table {}", table_name);
-            create_table(&conn, &table_name).expect("Failed to create table");
-        }
-        Commands::Query { query } => {
-            println!("Query: {}", query);
-            query_exec(&conn, &query).expect("Failed to execute query");
-        }
-        Commands::Delete { delete_query } => {
-            println!("Deleting: {}", delete_query);
-            drop_table(&conn, &delete_query).expect("Failed to drop table");
-        }
-        Commands::Load {
-            table_name,
-            file_path,
-        } => {
-            println!(
-                "Loading data into table '{}' from '{}'",
-                table_name, file_path
-            );
-            load_data_from_csv(&conn, &table_name, &file_path)
-                .expect("Failed to load data from csv");
+    conn.execute("DROP TABLE IF EXISTS nfl_Receivers", [])?;
+
+    conn.execute(
+        "CREATE TABLE nfl_Receivers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        pfr_player_id TEXT,
+        player_name TEXT,
+        career_try FLOAT,
+        career_ranypa FLOAT,
+        career_wowy FLOAT,
+        bcs_rating FLOAT)",
+        [],
+    )?;
+
+    let mut rdr = csv::Reader::from_path(dataset).expect("Failed to read dataset");
+
+    let mut stmt = conn.prepare(
+        "INSERT INTO nfl_Receivers (
+            pfr_player_id,
+            player_name,
+            career_try,
+            career_ranypa,
+            career_wowy,
+            bcs_rating
+        ) VALUES (?,?, ?, ?, ?, ?)",
+    )?;
+
+    for result in rdr.records() {
+        match result {
+            Ok(record) => {
+                stmt.execute([
+                    &record[0], &record[1], &record[2], &record[3], &record[4], &record[5],
+                ])?;
+            }
+            Err(err) => {
+                eprintln!("Error reading CSV record: {:?}", err);
+            }
         }
     }
+
+    Ok("nfl_Receivers.db".to_string())
+}
+
+pub fn query(query: &str) -> Result<()> {
+    let conn = Connection::open("nfl_Receivers.db")?;
+    // Read operation
+    if query.trim().to_lowercase().starts_with("select") {
+        let mut stmt = conn.prepare(query)?;
+        let results = stmt.query_map(params![], |row| {
+            Ok((
+                row.get::<usize, i32>(0)?,
+                row.get::<usize, String>(1)?,
+                row.get::<usize, String>(2)?,
+                row.get::<usize, f32>(3)?,
+                row.get::<usize, f32>(4)?,
+                row.get::<usize, f32>(5)?,
+                row.get::<usize, f32>(6)?,
+            ))
+        })?;
+
+        for result in results {
+            match result {
+                Ok((
+                    id,
+                    pfr_player_id,
+                    player_name,
+                    career_try,
+                    career_ranypa,
+                    career_wowy,
+                    bcs_rating,
+                )) => {
+                    println!(
+                        "Result: id={}, player_id={}, player={}, try={}, ranypa={}, wowy={}, rating={}",
+                        id, pfr_player_id, player_name, career_try, career_ranypa, career_wowy, bcs_rating
+                    );
+                }
+                Err(e) => eprintln!("Error in row: {:?}", e),
+            }
+        }
+    } else {
+        // other CUD operations
+        conn.execute_batch(query)?;
+    }
+    log_query(query, LOG_FILE);
     Ok(())
 }
