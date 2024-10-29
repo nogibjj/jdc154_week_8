@@ -27,6 +27,9 @@ run:
 release:
 	cargo build --release
 
+check:
+	cargo check
+
 # Install Rust toolchain if needed
 install:
 	# Install if needed

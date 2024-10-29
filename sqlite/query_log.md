@@ -26,3 +26,7 @@ DELETE from nfl_Receivers WHERE id = 1;
 SELECT * FROM nfl_Receivers ORDER BY career_try DESC LIMIT 5;
 ```
 
+```sql
+SELECT * FROM nfl_Receivers WHERE id = 1;
+```
+
