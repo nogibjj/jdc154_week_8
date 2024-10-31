@@ -55,5 +55,5 @@ Binary can be accessed and downloaded by going to `Actions` -> Select the most r
 I used ChatGPT to help me convert my Python code to Rust. Additionally, I ran into issues with my binary artifact and used ChatGPT to help me figure out my issue (it was setting my working directory path to the correct folder). In general, when I ran into issues with compiling, I used ChatGPT to help point me in the correct direction to fix syntax and dependency errors. 
 
 ## Demo 
-![Demo Video](https://youtu.be/qN-oMLtS37g?si=WlHoVJmm4ngp2PG8)
+![Demo](https://youtu.be/qN-oMLtS37g?si=WlHoVJmm4ngp2PG8)
 
